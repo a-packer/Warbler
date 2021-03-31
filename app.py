@@ -18,7 +18,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = (
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ECHO'] = False
-app.config['DEBUG_TB_INTERCEPT_REDIRECTS'] = True
+app.config['DEBUG_TB_INTERCEPT_REDIRECTS'] = False
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', "it's a secret")
 toolbar = DebugToolbarExtension(app)
 
@@ -215,8 +215,47 @@ def stop_following(follow_id):
 def profile():
     """Update profile for current user."""
 
-    # IMPLEMENT THIS
+    if not g.user:
+        flash("Access unauthorized.", "danger")
+        return redirect("/")
 
+    user = g.user
+
+    form = UserAddForm(obj=user)
+
+    if form.validate_on_submit():
+        try:
+            user.username=form.username.data
+
+
+            user.email=form.email.data,
+            user.image_url=form.image_url.data 
+
+            user = User.authenticate(form.username.data,
+                                    form.password.data)
+
+            if user:
+                db.session.commit()
+                
+                do_login(user)
+                flash(f"Hello, {user.username}!", "success")
+                return render_template('users/detail.html', user=user)
+
+            flash("Invalid credentials.", 'danger')
+            return redirect("/")
+            
+
+        except IntegrityError:
+            flash("Username already taken", 'danger')
+            return redirect("/")
+       
+        return render_template('users/profile.html', form=form)
+
+    else:
+        return render_template('users/edit.html', form=form)
+    
+
+    
 
 @app.route('/users/delete', methods=["POST"])
 def delete_user():
@@ -232,6 +271,33 @@ def delete_user():
     db.session.commit()
 
     return redirect("/signup")
+
+
+@app.route('/users/add_like/<int:message_id>', methods=["GET", "POST"])
+def add_like(message_id):
+    """Add a 'like' to a message"""
+
+    if not g.user:
+        flash("Access unauthorized.", "danger")
+        return redirect("/")
+
+    user = User.query.get_or_404(g.user.id)
+    message = Message.query.get_or_404(message_id)
+
+    # check to see if message in liked messages already. If not, add to likes
+    liked_messages = user.likes
+    likes = [liked_message.id for liked_message in liked_messages]
+    if message.id in likes:
+        likes.remove(message.id)
+        user.likes = [Message.query.get(like_id) for like_id in likes]
+        db.session.commit()
+        return redirect('/')
+    else:
+        user.likes.append(message)
+        db.session.commit()
+        return redirect('/')
+
+    
 
 
 ##############################################################################
@@ -283,6 +349,7 @@ def messages_destroy(message_id):
     return redirect(f"/users/{g.user.id}")
 
 
+
 ##############################################################################
 # Homepage and error pages
 
@@ -296,13 +363,26 @@ def homepage():
     """
 
     if g.user:
-        messages = (Message
+        all_messages = (Message
                     .query
                     .order_by(Message.timestamp.desc())
                     .limit(100)
                     .all())
 
-        return render_template('home.html', messages=messages)
+        user = g.user
+
+        relevant_messages = []
+        users_following = [following_user.id for following_user in user.following]
+
+        for message in all_messages:
+            if message.user_id in users_following or message.user_id == user.id:
+                relevant_messages.append(message)
+            else:
+                pass
+
+        liked_messages = user.likes
+        likes = [liked_message.id for liked_message in liked_messages]
+        return render_template('home.html', messages=relevant_messages, likes=likes)
 
     else:
         return render_template('home-anon.html')
