@@ -71,3 +71,56 @@ class MessageViewTestCase(TestCase):
 
             msg = Message.query.one()
             self.assertEqual(msg.text, "Hello")
+
+    def test_add_message_no_curr_user(self):
+        with self.client as c:
+            resp = c.post("/messages/new", data={"text": "Hello"}, follow_redirects=True)
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn("Access unauthorized.", str(resp.data))
+
+    def test_add_message_with_invalid_user(self):
+        with self.client as c:
+            with c.session_transaction() as sess:
+                sess[CURR_USER_KEY] = 99999999999999999999 #not a valid user_id
+            resp = c.post("/messages/new", data={"text": "Hello"}, follow_redirects=True)
+            self.assertEqual(resp.status_code, 200)
+
+    def test_invalid_message_show(self):
+        with self.client as c:
+            with c.session_transaction() as sess:
+                sess[CURR_USER_KEY] = self.testuser.id        
+            resp = c.get('/messages/99999999')
+            self.assertEqual(resp.status_code, 404)
+    
+    def test_valid_message_deletion(self):
+        with self.client as c:
+            with c.session_transaction() as sess:
+                sess[CURR_USER_KEY] = self.testuser.id 
+            u = User.signup(username="testuser_valid_message", email="testemail@email.com", password="testpassword", image_url=None)
+            db.session.add(u)
+            db.session.commit()
+            u_id = u.id
+
+            m = Message(text="I must be deleted", user_id=u_id) 
+            db.session.add(m)
+            db.session.commit()
+
+            m_id = m.id
+            resp = c.post(f'/messages/{m.id}/delete', follow_redirects=True)
+            self.assertEqual(resp.status_code, 200)
+
+    def test_invalid_message_deletion(self):
+        with self.client as c:
+            with c.session_transaction() as sess:
+                sess[CURR_USER_KEY] = self.testuser.id 
+
+            resp = c.post(f'/messages/999999999999999999/delete', follow_redirects=True)
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn("Access unauthorized.", str(resp.data))
+
+
+
+            
+
+
+
